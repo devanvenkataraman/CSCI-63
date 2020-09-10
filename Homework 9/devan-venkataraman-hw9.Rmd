@@ -1,0 +1,189 @@
+---
+title: "CSCI E-63C Problem Set 9"
+output:
+  html_document:
+    toc: true
+---
+
+# Preface
+
+For this week problem set we will use WiFi localization data (the one we worked with on week 2) to fit logistic regression model and evaluate performance of LDA, QDA and KNN classifiers.  As we have seen earlier this dataset should allow to locate phones fairly well by relying on the strength of WiFi signal, so we should expect to see fairly low error rates for our classifiers.  Let's see whether some of those classifiers perform better than others on this data.
+
+**Important note:** *For the purposes of all problems in this week problem set, we will be predicting whether the phone is at location=3 or not, as opposed to working with multi-class predictor.  In other words, before you proceed with any of the problems in this assignment, please convert the four-levels outcome to the outcome with only two levels: location=3 (must be 500 of those) and not (must be 1500 of them).*
+
+*If you are creating a new column containing this binary outcome, please make sure that the original outcome with four columns is NOT used inadvertently as one of the predictors.  If you are getting invariably 100% accuracy regardless of the choice of the method or split of the data into training and test, chances are your code is using original four-levels outcome as a predictor.*
+
+``` {r importdata}
+library(MASS)
+library(class)
+library(e1071)
+
+wifiData <- read.table("./wifi_localization.txt", header=FALSE, sep="\t")
+
+for (i in 1:7) {
+  names(wifiData)[i] <- sprintf("Signal %i", i)
+}
+isroom3 <- ifelse(wifiData[,8]==3, 1, 0)
+isroom3 <- as.factor(isroom3)
+wifiData[8] <- isroom3
+colnames(wifiData)[8] <- "IsRoom3"
+head(wifiData)
+```
+
+# Problem 1 (10 points): logistic regression
+
+Fit logistic regression model of the binary categorical outcome (location=3 or not) using seven WiFi signals strengths as predictors in the model.  Produce summary of the model, describe which attributes appear to be significantly associated with the categorical outcome in this model.  Use this model to make predictions on the entire dataset and compare these predictions and corresponding true values of the class attribute using confusion matrix (i.e. contingency table).  Calculate error rate (would this be training or test error in this case?), sensitivity and specificity (assuming that we are predicting class "location=3").  Describe the results.
+
+``` {r problem1pt1}
+logreg <- glm(IsRoom3~.,data=wifiData, family=binomial)
+summary(logreg)
+```
+
+**According to the logistic regression model sumamry, all variables may have some predictive value in categorizing the room (room 3 or not). It appears that signals 3 and 5 are most influential in prediction.**
+
+``` {r problem1pt2}
+logreg.probs <- predict(logreg, type="response")
+logreg.pred <- rep(0, 2000)
+logreg.pred[logreg.probs > 0.5] <- 1
+logreg.confmatrix <- table(logreg.pred, wifiData$IsRoom3)
+logreg.confmatrix
+```
+
+``` {r problem1pt3}
+logreg.error <- 1-mean(logreg.pred==wifiData$IsRoom3)
+logreg.error
+
+logreg.specificity <- 1385/(115+1385)
+logreg.specificity
+logreg.sensitivity <- 178/(322+178)
+logreg.sensitivity
+```
+
+**Analysis on the confusion matrix reveals that our logistic regression model has about a 22% error rate in predicting whether or not it is located in Room 3. This is actually a training error, because we test the model on the same data we trained it with. Further analysis finds a specificity of 92%, while a sensitivity of only 35%. This signifies that the model is not missing many true events, but it is falsely identifying Room 3 quite often. The 78% accuracy rate may be a bit misleading, as only 35% of the observations identified as Room 3 are actually Room 3.**
+
+# Problem 2 (10 points): LDA and QDA
+
+Using LDA and QDA implementations available in the package `MASS`, fit LDA and QDA classifiers on the entire dataset and calculate confusion matrix, (training) error rate, sensitivity and specificity for each of them.  Compare them to those of logistic regression.  Describe the results.
+
+``` {r problem2pt1}
+lda.fit <- lda(IsRoom3~., data=wifiData)
+lda.preds <- predict(lda.fit)
+lda.confmatrix <- table(lda.preds$class, wifiData$IsRoom3)
+lda.confmatrix
+```
+
+``` {r problem 2pt2}
+lda.error <- 1-mean(lda.preds$class==wifiData$IsRoom3)
+lda.error
+
+lda.specificity <- 1382/(118+1382)
+lda.specificity
+lda.sensitivity <- 179/(179+321)
+lda.sensitivity
+```
+
+**The LDA model shows extremely similar results to the logistic regression model. Here, we find just a thousandth difference in error, 0.001 less in specificity, and 0.002 higher sensitivity. The pattern here is that the models seem to pick out those room 3 observations, but are accurate in predicting when they are not in room 3. Here it is important to look at specificity and sensitivity - a 78% accurate model does not tell the whole story because the categorical value of interest represents a minority of observations.**
+
+# Problem 3 (10 points): KNN
+
+Using `knn` from library `class`, fit KNN classifiers for the entire dataset and calculate confusion matrix, (training) error rate, sensitivity/specificity for  $k=1$, $5$ and $25$ nearest neighbors models.  Compare them to the corresponding results from LDA, QDA and logistic regression. Describe results of this comparison and discuss whether it is surprising to see low *training* error for KNN classifier with $k=1$.
+
+``` {r problem3pt1}
+
+for (i in c(1, 5, 25)) {
+  knn.fit <- knn(train=wifiData, test=wifiData, cl=wifiData$IsRoom3, k=i)
+  knn.table <- table(knn.fit, wifiData$IsRoom3)
+  print(knn.table)
+  knn.error <- 1-mean(knn.fit==wifiData$IsRoom3)
+  print(knn.error)
+  knn.specificity <- knn.table[1,1] / sum(knn.table[,1])
+  print(knn.specificity)
+  knn.sensitivity <- knn.table[2,2] / sum(knn.table[,2])
+  print(knn.sensitivity)
+}
+
+```
+
+**Above are the prediction results of knn models with 1, 5, and 25 clusters respectively. The accuracy rate, specificity, and sensitivity across the board are higher than the previous models. However, I suspect there is serious bias when using the same data on training and test. For example, with one neighbor, the knn algorithm actually chooses itself as the nearest neighbor, meaning there will be no training error.**
+
+# Problem 4 (30 points): compare test errors of logistic regression, LDA, QDA and KNN
+
+Using resampling approach of your choice (e.g. cross-validation, bootstrap, etc.) obtain test error as well as sensitivity and specificity for each of these methods (logistic regression, LDA, QDA, KNN with $k=1,7,55,351$).  Present results in the form of boxplots, compare test error/sensitivity/specificity across these methods and discuss their relative performance.
+
+``` {r problem4pt1}
+for ( iTry in 1:10 ) {
+  cat("Trial",iTry,"- GLM, LDA, QDA, knn: k=1, k=7, k=55, k=351\n")
+  trainIdx <- sample(nrow(wifiData),nrow(wifiData),replace=TRUE)
+  wTrain <- wifiData[trainIdx,]
+  wTest <- wifiData[-trainIdx,]
+  logTry <- glm(IsRoom3~.,data=wTrain,family=binomial)
+  ldaTry <- lda(IsRoom3~.,data=wTrain)
+  qdaTry <- qda(IsRoom3~.,data=wTrain)
+  glmTestRes <- as.numeric(predict(logTry,newdata=wTest,type="response")>0.5)
+  ldaTestRes <- predict(ldaTry,newdata=wTest)$class
+  qdaTestRes <- predict(qdaTry,newdata=wTest)$class
+  # boxplot(glmTestRes~wTest[,"IsRoom3"])
+  # boxplot(ldaTestRes~wTest[,"IsRoom3"])
+  # boxplot(qdaTestRes~wTest[,"IsRoom3"])
+  tblTstglm <- table(wTest[,"IsRoom3"],glmTestRes)
+  tblTstLDA <- table(wTest[,"IsRoom3"],ldaTestRes)
+  tblTstQDA <- table(wTest[,"IsRoom3"],qdaTestRes)
+  
+  glm.specificity <- tblTstglm[1,1] / sum(tblTstglm[,1])
+  glm.sensitivity <- tblTstglm[2,2] / sum(tblTstglm[,2])
+  
+  LDA.specificity <- tblTstLDA[1,1] / sum(tblTstLDA[,1])
+  LDA.sensitivity <- tblTstLDA[2,2] / sum(tblTstLDA[,2])
+  
+  QDA.specificity <- tblTstQDA[1,1] / sum(tblTstQDA[,1])
+  QDA.sensitivity <- tblTstQDA[2,2] / sum(tblTstQDA[,2])
+  
+  knn1.fit <- knn(train=wTrain, test=wTest, cl=wifiData$IsRoom3, k=1)
+  knn1.table <- table(wTest[,"IsRoom3"], knn1.fit)
+  knn1.error <- 1-mean(knn1.fit==wTest$IsRoom3)
+  knn1.specificity <- knn1.table[1,1] / sum(knn1.table[,1])
+  knn1.sensitivity <- knn1.table[2,2] / sum(knn1.table[,2])
+  
+  knn7.fit <- knn(train=wTrain, test=wTest, cl=wifiData$IsRoom3, k=7)
+  knn7.table <- table(wTest[,"IsRoom3"], knn7.fit)
+  knn7.error <- 1-mean(knn7.fit==wTest$IsRoom3)
+  knn7.specificity <- knn7.table[1,1] / sum(knn7.table[,1])
+  knn7.sensitivity <- knn7.table[2,2] / sum(knn7.table[,2])
+  
+  knn55.fit <- knn(train=wTrain, test=wTest, cl=wifiData$IsRoom3, k=55)
+  knn55.table <- table(wTest[,"IsRoom3"], knn55.fit)
+  knn55.error <- 1-mean(knn55.fit==wTest$IsRoom3)
+  knn55.specificity <- knn55.table[1,1] / sum(knn55.table[,1])
+  knn55.sensitivity <- knn55.table[2,2] / sum(knn55.table[,2])
+  
+  knn351.fit <- knn(train=wTrain, test=wTest, cl=wifiData$IsRoom3, k=351)
+  knn351.table <- table(wTest[,"IsRoom3"], knn351.fit)
+  knn351.error <- 1-mean(knn351.fit==wTest$IsRoom3)
+  knn351.specificity <- knn351.table[1,1] / sum(knn351.table[,1])
+  knn351.sensitivity <- knn351.table[2,2] / sum(knn351.table[,2])
+  
+  print("Error rates:")
+  cat(1-sum(diag(tblTstglm))/sum(tblTstglm),1-sum(diag(tblTstLDA))/sum(tblTstLDA),1-sum(diag(tblTstQDA))/sum(tblTstQDA), knn1.error, knn7.error, knn55.error, knn351.error,fill=TRUE)
+  
+  print("Specificity:")
+  cat(glm.specificity,LDA.specificity, QDA.specificity, knn1.specificity, knn7.specificity, knn55.specificity, knn351.specificity,fill=TRUE)
+  
+  print("Sensitivity:")
+  cat(glm.sensitivity,LDA.sensitivity, QDA.sensitivity, knn1.sensitivity, knn7.sensitivity, knn55.sensitivity, knn351.sensitivity,fill=TRUE, "\n\n")
+}
+
+boxplot(glmTestRes~wTest[,"IsRoom3"])
+
+```
+
+Apologies for the extremely unmodular code. I was also unable to generate boxplots for most of the methods and found the prediction-based plot for the glm model to not add any value (I may have done it wrong) so I included just one at the end.
+
+**Bootstrapping across several classification methods provides really interesting insight into the effectiveness of different models, at least on this given dataset. Immediately, I notice the extreme effectiveness of the QDA model. For all trials, it has an error of < 5%, whereas the rest sit around 20%. This translates to extremely high specificity and sensitivity rates as well. Taking a look at only the knn results with varying cluster sizes, we see an increase in accuracy as the number of clusters increases. These results are perhaps more reliable than before, as bootstrapping allowed us to test on different data than the model was trained on. For cluster sizes 55 and 351, the knn model predicts 0 positive cases, or predicts Room 3 for 0 observations.**
+
+# Extra 5 points problem: naive Bayes classifier
+
+Fit naive Bayes classifier (see lecture slides for examples of using `naiveBayes` function from package `e1071`) to the WiFi localization dataset with binary (location=3 or not) outcome and assess its performance on test data by resampling along with logistic regression, LDA, QDA and KNN in the Problem 4 above.
+
+# Extra 10 points problem: interaction terms in logistic regression
+
+Add pairwise interaction terms to the logistic regression model fit in the Problem 1 above and evaluate impact of their addition on training **and** test error.  You can add all pairwise interaction terms or a subset of them, in which case the rationale behind selecting such a subset has to be described in your solution.

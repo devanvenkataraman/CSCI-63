@@ -1,0 +1,187 @@
+---
+title: 'CSCI E-63C: Problem Set 5'
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(ISLR)
+library(leaps)
+library(ggplot2)
+library(glmnet)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 1: the best subset selection (15 points)
+
+Using fund raising dataset from the week 4 problem set (properly preprocessed: shifted/log-transformed, predictions supplied with the data excluded) select the best subsets of variables for predicting `contrib` by the methods available in `regsubsets`.  Plot corresponding model metrics (rsq, rss, etc.) and discuss results presented in these plots (e.g. what number of variables appear to be optimal by different metrics) and which variables are included in models of which sizes (e.g. are there variables that are included more often than others?).
+
+It is up to you as to whether you want to include `gender` attribute in your analysis.  It is a categorical attribute and as such it has to be correctly represented by dummy variable(s).  If you do that properly (and above preface supplies abundant examples of doing that), you will be getting three extra points for each of the problems in this week problem set that (correctly!) included `gender` in the analysis for the possible total extra of 3x4=12 points.  If you prefer not to add this extra work, then excluding `gender` from the data at the outset (as you were instructed to do for week 4) is probably the cleanest way to prevent it from getting in the way of your computations and limit the points total you can earn for this problem set to the standard 60 points. 
+
+``` {r problem1pt1}
+fundraising <- read.table("./fund-raising-with-predictions.csv", header=TRUE, sep=",")
+
+# Remove prediction variable
+FundData <- fundraising[,-14]
+
+# Log-transform data
+FundData[,-13] <- log(FundData[,-13] + 1)
+dim(FundData)
+head(FundData)
+
+summaryMetrics <- NULL
+whichAll <- list()
+
+for ( myMthd in c("exhaustive", "backward", "forward", "seqrep") ) {
+  # 13 because 12 cont. vars + gender categorical attribute takes on one of three distinct values, represented via 2 dummy variables
+  rsRes <- regsubsets(contrib~.,FundData,method=myMthd,nvmax=13)
+  summRes <- summary(rsRes)
+  whichAll[[myMthd]] <- summRes$which
+  for ( metricName in c("rsq","rss","adjr2","cp","bic") ) {
+    summaryMetrics <- rbind(summaryMetrics,
+      data.frame(method=myMthd,metric=metricName,
+                nvars=1:length(summRes[[metricName]]),
+                value=summRes[[metricName]]))
+  }
+}
+
+ggplot(summaryMetrics,aes(x=nvars,y=value,shape=method,colour=method)) + geom_path() + geom_point() + facet_wrap(~metric,scales="free") +   theme(legend.position="top")+theme_bw()
+
+old.par <- par(mfrow=c(1,2),ps=16,mar=c(5,7,2,1))
+for ( myMthd in names(whichAll) ) {
+  image(1:nrow(whichAll[[myMthd]]),
+        1:ncol(whichAll[[myMthd]]),
+        whichAll[[myMthd]],xlab="N(vars)",ylab="",
+        xaxt="n",yaxt="n",breaks=c(-0.5,0.5,1.5),
+        col=c("white","gray"),main=myMthd)
+  axis(1,1:nrow(whichAll[[myMthd]]),rownames(whichAll[[myMthd]]))
+  axis(2,1:ncol(whichAll[[myMthd]]),colnames(whichAll[[myMthd]]),las=2)
+}
+```
+
+**The summary plots reflect similar results as the preface - besides a few variations in models from the sequential replacement method, the resulting models from the variable selection methods perform very similarly across all metrics.**
+
+**The image plot gives us an idea of which variables are prevalent throughout the models of varying complexities. The first three variables included in the models are the same across all subset methods. In order, they are average contribution, last contribution, maximum contribution date. However, the fourth variable included via the backward method is minimum contribution date, whereas it is minimum contribution. I find it interesting that although the methods choose different variables at this point, they both relate to minimum contribution. I would expect a high underlying correlation between the two minimum contribution-related predictor variables.**
+
+# Problem 2: the best subset on training/test data (15 points)
+
+Splitting fund raising dataset into training and test as shown above, please calculate and plot training and test errors (MSE) for each model size for the methods available for `regsubsets`.  Using `which` field investigate stability of variable selection at each model size across multiple selections of training/test data.  Discuss these results -- e.g. what model size appears to be the most useful by this approach, what is the error rate corresponing to it, how stable is this conclusion across multiple methods for the best subset selection, how does this error compare to that of the predictions provided with the data (`predcontr` attribute)?
+
+``` {r problem2pt1}
+# Define a predict function for regsubsets class
+predict.regsubsets <- function (object, newdata, id, ...){
+  form=as.formula(object$call [[2]])
+  mat=model.matrix(form,newdata)
+  coefi=coef(object,id=id)
+  xvars=names (coefi)
+  mat[,xvars] %*% coefi
+}
+
+dfTmp <- NULL
+# 13 models for 13 total variables, 14 columns of which bc/ intercept, 4 methods
+whichSum <- array(0,dim=c(13,14,4),
+  dimnames=list(NULL,colnames(model.matrix(contrib~.,FundData)),
+      c("exhaustive", "backward", "forward", "seqrep")))
+# Split data into training and test 30 times:
+nTries <- 30
+for ( iTry in 1:nTries ) {
+  bTrain <- sample(rep(c(TRUE,FALSE),length.out=nrow(FundData)))
+  # Try each method available in regsubsets
+  # to select the best model of each size:
+  for ( jSelect in c("exhaustive", "backward", "forward", "seqrep") ) {
+    rsTrain <- regsubsets(contrib~.,FundData[bTrain,],nvmax=13,method=jSelect)
+    # Add up variable selections:
+    whichSum[,,jSelect] <- whichSum[,,jSelect] + summary(rsTrain)$which
+    summary(rsTrain)$which
+    # Calculate test error for each set of variables
+    # using predict.regsubsets implemented above:
+    for ( kVarSet in 1:13 ) {
+      # make predictions:
+      testPred <- predict(rsTrain,FundData[!bTrain,],id=kVarSet)
+      # calculate MSE:
+      mseTest <- mean((testPred-FundData[!bTrain,"contrib"])^2)
+      # add to data.frame for future plotting:
+      dfTmp <- rbind(dfTmp,data.frame(sim=iTry,sel=jSelect,vars=kVarSet,
+      mse=c(mseTest,summary(rsTrain)$rss[kVarSet]/sum(bTrain)),trainTest=c("test","train")))
+    }
+  }
+}
+
+# plot MSEs by training/test, number of 
+# variables and selection method:
+ggplot(dfTmp,aes(x=factor(vars),y=mse,colour=sel)) + geom_boxplot()+facet_wrap(~trainTest)+theme_bw()
+```
+
+**As we would expect, error on the training set continues to lower consistently when more variables are added as the model begins to overfit the data set. However by examining the training data, we find that the minimum error results from a model with 6-7 variables, with a median error rate of ~0.157. However, these models are not stable across all methods, and see some of the highest rates of variance in the sequential replacement method across all models. Models with 8 variables may show slightly higher rates of error, but result in more consistency across the 4 methods.**
+
+``` {r problem2pt2}
+head(fundraising)
+# log original dataset for accurate error comparisons
+fundraising2 <- log(fundraising[,-13] + 1)
+comp.mse <- mean((fundraising2[,"contrib"]-fundraising2[,"predcontr"])^2)
+comp.mse
+```
+
+**The models generated by the variable selection methods consistently beat out the model of the competitor, measured by MSE.**
+
+``` {r problem2pt3}
+for ( myMthd in dimnames(whichSum)[[3]] ) {
+  tmpWhich <- whichSum[,,myMthd] / nTries
+  image(1:nrow(tmpWhich),1:ncol(tmpWhich),tmpWhich,
+        xlab="N(vars)",ylab="",xaxt="n",yaxt="n",main=myMthd,
+        breaks=c(-0.1,0.1,0.25,0.5,0.75,0.9,1.1),
+        col=c("white","gray90","gray75","gray50","gray25","gray10"))
+  axis(1,1:nrow(tmpWhich),rownames(tmpWhich))
+  axis(2,1:ncol(tmpWhich),colnames(tmpWhich),las=2)
+}
+```
+
+**An inclusion of the image plot for prevalence of variables shows similar trends to the same plot without training + testing. Average and last contribution appear to be included in the most models, followed by max contribution.**
+
+# Problem 3: lasso regression (15 points)
+
+Fit lasso regression model of the outcome in fund raising dataset.  Plot and discuss `glmnet` and `cv.glmnet` results.  Compare coefficient values at cross-validation minimum MSE and that 1SE away from it -- which coefficients are set to zero?  Experiment with different ranges of `lambda` passed to `cv.glmnet` and discuss the results.
+
+``` {r problem3pt1}
+x <- model.matrix(contrib~.,FundData)[,-1]
+y <- FundData[,"contrib"]
+lassoRes <- glmnet(x,y, alpha=1)
+plot(lassoRes, label=TRUE)
+head(FundData)
+
+cvLassoRes <- cv.glmnet(x,y,alpha=1)
+cvLassoRes$lambda.min
+plot(cvLassoRes)
+```
+
+**The variables that take on non-zero values first are max and last contribution, which make sense in context of earlier modeling. The cv.glmnet results show that error is minimized with a lamdba value of ~log(-6) which corresponds with a model of 9-10 variables, while the suggested +1 SE value is found at ~log(-3), corresponding to a model of 3 variables.**
+
+``` {r problem3pt2}
+cvLassoRes <- cv.glmnet(x,y,alpha=1,lambda=10^((-100:10)/20))
+plot(cvLassoRes)
+```
+**Experimenting with the value of lambda shows a plateau on either extreme, further suggesting that the +1 SE value may be a better value to use in preventing overfitting of the model. At ~log(-2), the error starts to rise significantly, before topping out of course at 0.**
+
+# Problem 4: lasso in resampling (15 points)
+
+Similarly to the example shown in Preface above use resampling to estimate test error of lasso models fit to training data and stability of the variable selection by lasso across different splits of data into training and test.  Use resampling approach of your choice.  Compare typical model size to that obtained by the best subset selection above.  Compare test error observed here to that of the predictions supplied with the data (`predcontr`) and the models fit above -- discuss the results.
+
+``` {r problem4pt1}
+lassoCoefCnt <- 0
+lassoMSE <- NULL
+for ( iTry in 1:30 ) {
+  bTrain <- sample(rep(c(TRUE,FALSE),length.out=nrow(x)))
+  cvLassoTrain <- cv.glmnet(x[bTrain,],y[bTrain],alpha=1)
+  lassoTrain <- glmnet(x[bTrain,],y[bTrain],alpha=1)
+  lassoTrainCoef <- predict(lassoTrain,type="coefficients",s=cvLassoTrain$lambda.1se)
+  lassoCoefCnt <- lassoCoefCnt + (lassoTrainCoef[-1,1]!=0)
+  lassoTestPred <- predict(lassoTrain,newx=x[!bTrain,],s=cvLassoTrain$lambda.1se)
+  lassoMSE <- c(lassoMSE,mean((lassoTestPred-y[!bTrain])^2))
+}
+mean(lassoMSE)
+
+lassoCoefCnt
+```
+
+**The results of bootstrapping show that in all 30 trials, the variables, max contribution, last contribution, and average contribution were included. In 7/30 trials, date of max contribution was included but beyond this, no variables were included in the models. The mean error was 0.12, quite similar to that chosen by the best subset selection approach.**

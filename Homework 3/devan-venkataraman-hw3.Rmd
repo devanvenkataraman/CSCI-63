@@ -1,0 +1,163 @@
+---
+title: 'CSCI E-63C: Week 3 Problem Set'
+author: 'Devan Venkataraman'
+output:
+  html_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE, results='hide'}
+library(splus2R)
+library(ggplot2)
+library(GGally)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 1: model of target contribution and last contribution (30 points)
+
+Here we will identify the variable most correlated with the outcome (the donations to the campaign of interest - column `contrib` in `fund-raising.csv` file), build simple linear model for this outcome as a function of this variable, evaluate model summary and diagnostic plots and assess impact of using log-transformed (instead of untransformed) attributes on the model peformance.  The following steps provide approximate outline of tasks for achieving these goals:
+
+1. Calculate correlations between all *continuous* attributes in this dataset.  Given potential non-linear relationship between some of the attributes and outcome, it might be prudent to use both Pearson and Spearman correlations to determine which variable is most robustly correlated with the target contributions (`contrib`). [see documentation for the function `cor()`]
+
+2. Fit linear model for target campaign contribution as the outcome and the last contribution by this donor (`lastcontr` in `fund-raising.csv`) as the predictor, using R function `lm`; inspect the fitted model using `summary` function, and use the output to answer the following questions:
+
+   + Does this predictor explain significant amount of variability in response?  I.e. is there statistically (!) significant association between them?
+   
+   + What is the RSE and $R^2$ of this model?  Remember, you can find them in the `summary` output or use `sigma` and `r.sq` slots in the result returned by `summary` instead (the `summary()` command does return a *list*; if instead of just printing the result into the console you save it into a variable, as in `model.summary <- summary(...)`, then you can verify that the content of that variable *is* a list, you can see with `names(model.summary)` which elements this list contains, and you can extract, examine, and use them at will programmatically if you ever need to)
+   
+   + What are the model coefficients and what would be their interpretation? What is the meaning of the intercept of the model, for example?  What about the slope - how would you interpret its value?
+
+3. Create scatterplot of target campaign contribution and the last contribution (the attributes used in the model above) and add to the plot the regression line from the model using `abline` function
+
+4. Create diagnostic plots of the model and comment on any irregularities that they present.  For instance, does the plot of residuals vs. fitted values suggest presence of non-linearity that remains unexplained by the model?  Does scale-location plot suggest non-uniformity of variance along the range of fitted values?  Are some standardized residuals far greater than theoretical quantiles?  What about residuals vs. leverage plot and Cook's distance contours therein?  How does your conclusions compare to what's shown in the plot of the predictor and outcome with regression line added to it -- i.e. the plot that was generated above?
+
+5. Use function `confint` to obtain 95% confidence intervals on model parameters
+
+6. Use this model and `predict` function to make predictions for the last contribution values of 10, 20 and 40. Remember that when you pass new data to `predict`, you have to make sure that the variable (column) names in those data match the predictor variable name(s) used in the model, otherwise `predict` will not know how to match the data to the model variables! Use `confidence` and `prediction` settings for parameter `interval` in the call to `predict` to obtain 90% confidence and prediction intervals on these model predictions (please double check what the default confidence level used by those functions is, and adjust if/as necessary).  Explain the differences between interpretation of:
+    + confidence intervals on model parameters and model predictions
+    + confidence and prediction intervals on model predictions
+    + comment on whether confidence or prediction intervals (on predictions) are wider and why
+
+``` {r problem1pt1}
+fundraising <- read.table("./fund-raising.csv", header=TRUE, sep=",")
+
+paste("via pearson method:")
+for(i in 1:numCols(fundraising)-1) {
+   print(cor(fundraising$contrib, fundraising[i], method = "pearson"))
+}
+
+paste("via spearman method")
+for(i in 1:numCols(fundraising)-1) {
+   print(cor(fundraising$contrib, fundraising[i], method = "spearman"))
+}
+```
+``` {r problem1pt2}
+model.summary <- summary(lm(contrib~lastcontr,fundraising))
+model.summary
+model.summary$sigma
+model.summary$r.squared
+```
+**Yes, there appears to be a significant association between the two variables. The p value, which is basically 0, tells us that a non-relation between the two variables is nearly impossible given the training data.**
+
+**The RSE is 7.692 and the r squared value is 0.557. The intercept value is 3.523 while the slope is 0.795. The intercept can be interpreted as follows: based on the regression, for a donor whose last contribution was $0, we would expect their target campaign contribution to be 3.523. The slope can be interpreted as: for a given donor's increase in last contribution of $1, we would expect an increase in $0.795 in target campaign contribution.**
+
+``` {r problem1pt3}
+plot(fundraising$lastcontr, fundraising$contrib)
+abline(lm(contrib~lastcontr, fundraising), col=2, lwd=2)
+```
+``` {r problem1pt4}
+old.par <- par(mfrow=c(2,2))
+plot(lm(contrib~lastcontr,fundraising))
+```
+
+**The plot of residuals vs. fitted values does not suggest any non-linear pattern. The scale-location plot does not show strong heteroscedasticity, although data points with smaller lastcontr values may show slightly more variance. I believe this is mostly due to the much higher concentration of data plots at the lower end of the lastcontr values. In the QQ plot, we see that for those largest data points, the residuals fall far outside the range of theoretical quantiles, showing that the residuals are too large given the dataset size. Finally, there are a few points that lie on or around Cook's heavily influencing our model.**
+
+**My findings from the summary above align well with the plot of the two variables. The plot shows a few highly-leveraged points as suggested by the leverage plot, and a bit of unequal variance in residuals among those smaller data points.**
+
+``` {r problem1pt5}
+par(old.par)
+confint(lm(contrib~lastcontr,fundraising))
+
+paste("confidence intervals:")
+predict(lm(contrib~lastcontr,fundraising),newdata=data.frame(lastcontr=c(10,20,40)),interval='confidence', level=0.90)
+paste("prediction intervals:")
+predict(lm(contrib~lastcontr,fundraising),newdata=data.frame(lastcontr=c(10,20,40)),interval='prediction', level=0.90)
+```
+**Confidence intervals on model parameters provide a real in which we are x% confident that the REAL parameter falls in. For this last problem, we are 95% confident that the real slope in the relationship of lastcontr and contr lies between 0.77 and 0.82. This differs from a CI on model predictions, which expresses a range in outcome values in which we are x% confident that some input value will fall in.**
+
+**Confidence intervals on model predictions seek to tell you about the likely location of the true population value, similar to how they seek to estimate population parameters. Meanwhile, prediction intervals tell you where you can expect the next data point sampled. It tells you about the distribution of values rather than the uncertainty of predicting the population mean. Since prediction intervals have the uncertainty of not knowing the population mean and data scatter by predicting values, they are wider intervals.**
+
+
+# Problem 2: model using log-transformed attributes (20 points)
+
+1. Use `lm()` to fit a regression model of *log-transformed* outcome (`contrib`) as a linear function of *log-transformed* last contribution and use `summary` to evaluate its results.
+
+For the purposes of this exercise we can exclude small number of observations where `lastcontr==0`, otherwise log-transformation will result in negative infinity values for those and error from the call to `lm`. (And what does last contribution of zero represent in the first place, anyway?!  Rounded values of contributions below 1?  That's a rhetorical question aimed at data producers, no need to answer it as part of this problem set.)  When you exclude those observations with `lastcontr==0` please note in your solution how many exactly you have excluded.
+
+Now that we are done with that - can we compare the fits obtained using untransformed (above) and log-transformed attributes?  Can we directly compare RSE from these two models?  What about comparing $R^2$?  What would we conclude from this? (Please consult ISLR Ch.3.1.3 if unsure)  What would be the physical meaning of model coefficients this time?  What does model intercept represent in this case, for example?  How sensible is this and how does this compare to the meaning of the same parameter (intercept) obtained when fitting on untransformed data?
+
+2. Create an XY-scatterplot of log-transformed predictor and response and add corresponding regression line to it.  Compare it to the plot in untransformed coordinates obtained in Problem 1.  What would you conclude from such comparison?
+
+3. Make diagnostic plots for the model fit on log-transformed outcome and the last contribution.  Compare them to the diagnostic plots generated in Problem 1 for the model fitted using original scale of measurements (untransformed). What can you conclude from this comparison about the relative quality of these two models?
+
+``` {r problem2pt1}
+# need to add one due to 0 values in lastcontr
+fundraisingnon0 <- fundraising[fundraising$lastcontr!=0,]
+# number of observations excluded
+numRows(fundraising) - numRows(fundraisingnon0)
+logmodel <- lm(log10(contrib)~log10(lastcontr),fundraisingnon0)
+M.log.summary <- summary(logmodel)
+M.log.summary
+```
+**With the log transformed data set, we excluded 10 observations.**
+
+``` {r problem2pt2}
+# Original model
+model.summary$sigma
+# Log-transformed model
+M.log.summary$sigma
+
+# Original model
+model.summary$adj.r.squared
+# Log-transformed model
+M.log.summary$adj.r.squared
+```
+**We cannot compare RSE values from the two models because RSE is an absolute measure - without standardization, we cannot compare the values in the log-based and original model. However, the R squared value measures the proportion of explained variance in the variation of y, so they can be compared across the two models. We find that the adjusted R squared value is slightly higher (~0.04) in the log-based model, suggesting that this transformation is helping discover a stronger relationship in the data.**
+
+**The original model has a very understandable interpretation of the model coefficients, but we have lost this interpretation in our log-based model. The model intercept in this case now represents the log10(contribution) we expect for a last contribution value of 1, instead of 0 (as it normally represents).**
+
+``` {r problem2pt3}
+plot(log10(contrib)~log10(lastcontr),fundraisingnon0, main="Plot of log-transformed contrib vs lastcontr")
+abline(logmodel, col=2, lwd=2)
+```
+**This plot is much better captured in a regression line. The outliers and values of high leverage have been reeled in to create a more consistent plot.**
+
+``` {r problem2pt4}
+old.par <- par(mfrow=c(2,2))
+plot(logmodel)
+```
+**Here we see slight improvement via the log-transformed model. The normal quantile plot has approached the theoretical quantile distribution slightly more and there are fewer leveraged points.**
+
+# Problem 3: Adding second variable to the model (10 points)
+
+To explore effects of adding another variable to the model, continue using log-transformed attributes and fit a model of log-transformed outcome (the same target campaign contribution, column `contrib` in `fund-raising.csv`) as a function of the last contribution and average contribution (both log-transformed).  Just an additive model -- no interaction term is necessary at this point. Please obtain and evaluate the summary of this model fit, confidence intervals on its parameters and its diagnostic plots. Where applicable, compare them to the model obtained above and reflect on pros and cons of including average contribution as another variable into the model.  You may find the discussion of *variance inflation factor* (VIF) in ISLR Ch.3.3.3 (Section 6) and its implementation `vif` in `car` library particularly useful in this context. 
+
+``` {r problem3pt1}
+logmodeladd <- lm(log10(contrib)~log10(lastcontr)+log10(avecontr),fundraisingnon0)
+summary(logmodeladd)
+```
+
+**The summary of the additive model shows us that the addition of the log10(avecontr) is a beneficial parameter to include. We see this in the adjusted r squared value (which accounts for the certain improvement in fit by adding another variable) of 0.64, compared to the prior model's value of 0.59. The P value of the added variable is also nearly 0 suggesting that the relationship does indeed exist.**
+
+``` {r problem3pt2}
+confint(logmodeladd)
+```
+
+**We cannot accurately compare the ranges of these confidence intervals to the original model because they are absolute values. However, it may be notable that the log-transformed intervals have larger ranges than those of the original model despite being lower in actual value.**
+
+``` {r problem3pt3}
+old.par <- par(mfrow=c(2,2))
+plot(logmodeladd)
+```
+
+**The summary plots indicate similar trends to the model above. We see minor improvement in the residual plot and perhaps a little tightening in the QQ plot. The biggest change is in the reduction in leverage - several higher-leverage points now have smaller residuals, reducing their individual impact on the model. Overall, the addition of the log-transformed ave-contr variable appears to improve the model, although somewhat minorly. A con of the model could be that it only explains a little bit more of the variance in contribution while making the model even less intuitive. However, it does seem to be a step forwarding in accurately predicting target campaign contribution.**

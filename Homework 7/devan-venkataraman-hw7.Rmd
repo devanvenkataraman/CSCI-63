@@ -1,0 +1,180 @@
+---
+title: 'CSCI E-63C: Problem Set 7'
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(cluster)
+library(ISLR)
+library(MASS)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE)
+options(width = 200)
+```
+
+# Problem 1: Principal components analysis (PCA) (25 points)
+
+The goal here is to appreciate the impact of scaling of the input variables on the result of the principal components analysis.  To that end, you will first survey means and variances of the attributes in this dataset (sub-problem 1a) and then obtain and explore results of PCA performed on data as is and after centering and scaling each attribute to zero mean and standard deviation of one (sub-problem 1b).
+
+``` {r problem1}
+
+GHOData <- read.table("whs2018_AnnexB-subset-wo-NAs.txt", sep="\t", header=TRUE)
+summary(GHOData)
+```
+
+## Sub-problem 1a: means and variances of WHS attributes (5 points)
+
+Compare means and variances of the *untransformed* attributes in the world health statisics dataset -- plot of variance vs. mean is probably the best given the number of attributes in the dataset.  Function `apply` allows to apply desired function (e.g. `mean` or `var` or `sd`) to each row or column in the table.  Do you see all r ncol(whs2018annexBdat) attributes in the plot, or at least most of them?  (Remember that you can use `plot(inpX,inpY,log="xy")` to use log-scale on both horizontal and vertical axes.)  Is there a dependency between attributes' averages and variances? What is the range of means and variances when calculated on untransformed data?  Which are the top two attributes with the highest mean or variance?  What are the implications for PCA rendition of this dataset (in two dimensions) if applied to untransformed data?
+
+``` {r subproblem1pt1}
+varmeans <- apply(GHOData, 2, mean)
+varvars <- apply(GHOData, 2, var)
+old.par <- par(mfrow=c(2,1),ps=16)
+plot(varmeans, varvars, log="xy")
+plot(varmeans, varvars, log="xy")
+text(varvars~varmeans, labels=colnames(GHOData), data=GHOData)
+par <- old.par
+```
+
+**The log-transformed plot of variable variance and mean shows a strong correlation between mean and variance. The range in both means and variances in the dataset across variables is extremely high. Values range from < 1 to over 1,000,000. The point with largest mean and variance is NTDinterventions, representing the number of people requiring interventions for neglected tropical diseases. The second largest data point is population (smaller because measured in 000s). Untransformed data, with such a large range in variances, would lead to extremely bias results because PCA is sensitive to differences in variable ranges.**
+
+## Sub-problem 1b: PCA on untransformed and scaled WHS data (20 points)
+
+Perform the steps outlined below *both* using *untransformed* data and *scaled* attributes in WHS dataset (remember, you can use R function `prcomp` to run PCA and to scale data you can either use as input to `prcomp` the output of `scale` as applied to the WHS data matrix or call `prcomp` with parameter `scale` set to `TRUE`). To make it explicit, the comparisons outlined below have to be performed first on the unstransformed WHS data and then again on scaled WHS data -- you should obtain two sets of results that you could compare and contrast.
+
+1. Obtain results of principal components analysis of the data (by using `prcomp`)
+2. Generate scree plot of PCA results (by calling `plot` on the result of `prcomp`)
+3. Generate plot of the two first principal components using `biplot`.  Which variables seem to predominantly drive the results of PCA when applied to untransformed data?
+  + Please note that in case of untransformed data you should expect `biplot` to generate substantial number of warnings.  Usually in R we should pay attention to these and understand whether they indicate that something went wrong in our analyses.  In this particular case they are expected -- why do you think that is?
+4. The field `rotation` in the output of `prcomp` contains *loadings* of the 1st, 2nd, etc. principal components (PCs) -- that can interpreted as contributions of each of the attributes in the input data to each of the PCs.
+  + What attributes have the largest (by their absolute value) loadings for the first and second principal component?
+  + How does it compare to what you have observed when comparing means and variances of all attributes in the world health statistics dataset?
+5. Calculate percentage of variance explained (PVE) by the first five principal components (PCs).  You can find an example of doing this in ISLR Chapter 10.4 (Lab 1 on PCA).
+
+
+Now that you have PCA results when applied to untransformed and scaled WHS data, please comment on how do they compare and what is the effect of scaling?  What dataset attributes contribute the most (by absolute value) to the top two principal components in each case (untransformed and scaled data)?  What are the signs of those contributions?  How do you interpret that?
+
+Please note, that the output of `biplot` with almost 200 text labels on it can be pretty busy and tough to read.  You can achieve better control when plotting PCA results if instead you plot the first two columns of the `x` attribute in the output of `prcomp` -- e.g. `plot(prcomp(USArrests,scale=T)$x[,1:2])`.  Then given this plot you can label a subset of countries on the plot by using `text` function in R to add labels at specified positions on the plot.  Please feel free to choose several countries of your preference and discuss the results.  Alternatively, indicate US, UK, China, India, Mexico, Australia, Israel, Italy, Ireland and Sweden and discuss the results.  Where do the countries you have plotted fall in the graph?  Considering what you found out about contributions of different attributes to the first two PCs, what do their positions tell us about their (dis-)similarities in terms of associated health statistics?
+
+``` {r subproblem1bpt1}
+pca.unscaled <- prcomp(GHOData)
+# pca.scaled <- prcomp(GHOData, scale=TRUE)
+plot(pca.unscaled)$x[,1:2]
+biplot(pca.unscaled)
+```
+
+**NTDintervention and population seem to drive the results of the PCA, which makes sense given that they are the largest valued-variables. The substantial amount of warnings is due to the extreme difference in variances in the untransformed data. Since PCA is sensitive to difference in variable ranges, several observations had no transformation based on the two PC's. We see disparities in the PC plot between countries such as the US, Brazil, and Russia from countries such as Nigeria, Ethiopia, the Congo, and India, suggesting dissimilarities in health statistics between the two groups. A clustering method may assist in detecting these dissimilarities.**
+
+``` {r subproblem1pt2}
+pca.unscaled$rotation[,1:5]
+```
+
+**The variables with the largest contributions are NTDinterventions and totalpopulation. These are also the variables with the largest means and variances. This tells us that these variables are overcontributing to the PCA, and that we would benefit from scaling variables.**
+
+``` {r subproblem1bpt3}
+pca.unscaled.var <- pca.unscaled$sdev^2
+pca.unscaled.pve <- pca.unscaled.var/sum(pca.unscaled.var)
+# just get first 5 pc's
+pca.unscaled.pve <- pca.unscaled.pve[1:5]
+pca.unscaled.pve <- as.data.frame(pca.unscaled.pve)
+pca.unscaled.pve
+```
+
+**Now repeat but with scaled data**
+
+``` {r subproblem1bpt4}
+pca.scaled <- prcomp(GHOData, scale=TRUE)
+plot(pca.scaled)$x[,1:2]
+biplot(pca.scaled)
+
+pca.scaled$rotation[,1:5]
+
+pca.scaled.var <- pca.scaled$sdev^2
+pca.scaled.pve <- pca.scaled.var/sum(pca.scaled.var)
+# just get first 5 pc's
+pca.scaled.pve <- pca.scaled.pve[1:5]
+pca.scaled.pve <- as.data.frame(pca.scaled.pve)
+pca.scaled.pve
+```
+
+**Now, we can compare PCA results from the unscaled data with the scaled data. From the biplot of PC2 vs PC1, it is clear that the transformations based on scaled WHS data are much more evenly weighted across variables. This tells me that the scaled data is doing a better job of an unbiased PCA. Numerically, we can look at the contributions of the variables to confirm a tighter range of coefficients. Finally, the percentage of explained variance of the first five principal components are much higher, and better explain the overall variance, which we should expect.**
+
+# Problem 2: K-means clustering (20 points)
+
+The goal of this problem is to practice use of K-means clustering and in the process appreciate the variability of the results due to different random starting assignments of observations to clusters and the effect of parameter `nstart` in alleviating it.
+
+## Sub-problem 2a: k-means clusters of different size (5 points)
+
+Using function `kmeans` perform K-means clustering on *explicitly scaled* (e.g. `kmeans(scale(x),2)`) WHS data for 2, 3 and 4 clusters.  Use `cluster` attribute in the output of `kmeans` to indicate cluster membership by color and/or shape of the corresponding symbols in the plot of the first two principal components generated independently on the same (scaled WHS) data.  E.g. `plot(prcomp(xyz)$x[,1:2],col=kmeans(xyz,4)$cluster)` where `xyz` is input data.  Describe the results.  Which countries are clustered together for each of these choices of $K$?
+
+``` {r subproblem2apt1}
+for (i in 2:4) {
+  kfit.x <- kmeans(scale(GHOData), i)
+  plot(prcomp(GHOData)$x[,1:2], col=kfit.x$cluster)
+}
+
+kfit.x
+```
+
+**The clustering method seems to cluster several developed countries (USA, UK, Switzerland, Sweden, Australia, France, Germany among others) together, while clustering other developing countries together (Ethiopia, Gambia, Niger, Malawi, Senegal, Somalia).**
+
+## Sub-problem 2b: variability of k-means clustering and effect of `nstart` parameter (15 points)
+
+By default, k-means clustering uses random set of centers as initial guesses of cluster centers.  Here we will explore variability of k-means cluster membership across several such initial random guesses.  To make such choices of random centers reproducible, we will use function `set.seed` to reset random number generator (RNG) used in R to make those initial guesses to known/controlled initial state.
+
+Using the approach defined above, repeat k-means clustering of *explicitly scaled* WHS data with four (`centers=4`) clusters three times resetting RNG each time with `set.seed` using seeds of 1, 2 and 3 respectively (and default value of `nstart=1`).  Indicate cluster membership in each of these three trials on the plot of the first two principal components using color and/or shape as described above.  Two fields in the output of `kmeans` -- `tot.withinss` and `betweenss` -- characterize within and between clusters sum-of-squares.  Tighter clustering results are those which have smaller ratio of within to between sum-of-squares.  What are the resulting ratios of within to between sum-of-squares for each of these three k-means clustering results (with random seeds of 1, 2 and 3)?
+
+Please bear in mind that the actual cluster identity is assigned randomly and does not matter -- i.e. if cluster 1 from the first run of `kmeans` (with random seed of 1) and cluster 4 from the run with the random seed of 2 contain the same observations (country/states in case of WHS dataset), they are *the same* clusters.
+
+Repeat the same procedure (k-means with four clusters for RNG seeds of 1, 2 and 3) now using `nstart=100` as a parameter in the call to `kmeans`.  Represent results graphically as before.  How does cluster membership compare between those three runs now?  What is the ratio of within to between sum-of-squares in each of these three cases?  What is the impact of using higher than 1 (default) value of `nstart`?  What is the ISLR recommendation on this offered in Ch. 10.5.1?
+
+One way to achieve everything this sub-problem calls for is to loop over `nstart` values of 1 and 100, for each value of `nstart`, loop over RNG seeds of 1, 2 and 3, for each value of RNG seed, reset RNG, call `kmeans` and plot results for each combination of `nstart` and RNG seed value.
+
+``` {r subproblem2bpt1}
+old.par <- par(mfrow=c(3,1), ps=16)
+for (i in c(1,100)) {
+  for (j in 1:3) {
+  set.seed(j)
+  kfit.x <- kmeans(scale(GHOData), 4, nstart=i)
+  plot(prcomp(GHOData)$x[,1:2], col=kfit.x$cluster)
+  ratio <- kfit.x$tot.withinss/kfit.x$betweenss
+  print(ratio)
+  }
+}
+```
+
+**The use of a larger nstart value is advised, as it means the clustering will be performed using multiple random assignments. In this case, for two seed values it results in a lower ratio of within to between sum of squares.**
+
+# Problem 3: Hierarchical clustering (15 points)
+
+## Sub-problem 3a: hierachical clustering by different linkages (10 points)
+
+Cluster country states in (scaled) world health statistics data using default (Euclidean) distance and "complete", "average", "single" and "ward" linkages in the call to `hclust`.  Plot each clustering hierarchy, describe the differences.  For comparison, plot results of clustering *untransformed* WHS data using default parameters (Euclidean distance, "complete" linkage) -- discuss the impact of the scaling on the outcome of hierarchical clustering.
+
+``` {r subproblem3apt1}
+GHODataScaled <- scale(GHOData)
+for (mymethod in c("complete", "average", "single", "ward.D")) {
+  hc.method <- hclust(dist(GHODataScaled), method=mymethod)
+  plot(hc.method, main=paste("Hclust using method:", mymethod))
+}
+
+hc.unscaled <- hclust(dist(GHOData), method="complete")
+  plot(hc.method, main="Hclust on unscaled data using method: complete")
+```
+
+**The most conclusive piece of evidence that can be drawn from each plot is the height of the tree. A smaller total height implies smaller distances between clusters, which is the case under the complete, average, and single methods. The ward method yields a much higher height, suggesting a less effective job of clustering, and matches the results under the unscaled data.**
+
+## Sub-problem 3b: compare k-means and hierarchical clustering (5 points)
+
+Using function `cutree` on the output of `hclust` determine assignment of the countries in WHS dataset into top four clusters when using Euclidean distance and Ward linkage. (Feel free to choose which one of the two varieties of Ward linkage available in `hclust` you want to use here!).  Use function `table` to compare membership of these clusters to those produced by k-means clustering with four clusters in the Problem 2(b) when using `nstart=100` (and any of the RNG seeds) above.  Discuss the results.
+
+``` {r subproblem3bpt1}
+GHO.cutree <- cutree(hc.method, 4)
+table(GHO.cutree)
+table(kfit.x$cluster)
+table(GHO.cutree, kfit.x$cluster)
+```
+
+**The two methods yield significantly different clustering results. Even ignoring the fact that the labels may not correspond to the actual same clusters, there is a large discrepancy in distributions of the two. From the plot of the data earlier, I would not dismiss a clustering method that separates out a couple values. This is because there are such large ranges in data values across variables.**

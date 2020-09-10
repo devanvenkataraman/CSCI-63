@@ -1,0 +1,33 @@
+---
+title: "Untitled"
+author: "Devan Venkataraman"
+date: "6/27/2020"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+dfTmp <- data.frame(rnorm(30),runif(30))
+response <- dfTmp[1]
+response
+mode(response)
+class(response)
+
+z <- 4
+f <- function(x=sqrt(z)) {
+   return(x)
+}
+
+f()
+z <- 16
+f()
+rm(z)
+# f()
+
+x <- 50:1
+x
+sort(x) [ x < 0.83 ]
+sort(x)[ round( 0.83*length(x) ) ]
+x[ round(0.83*sum(x)) ]
+x[ round(0.83*length(x)) ]
+
+```

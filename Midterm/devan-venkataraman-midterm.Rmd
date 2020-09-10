@@ -1,0 +1,315 @@
+---
+title: "CSCI E-63C: Midterm Exam"
+author: "Devan Venkataraman"
+output:
+  html_document:
+    toc: true
+---
+
+# Introduction
+
+*The goal of the midterm exam is to apply some of the methods covered in our course by now to a new dataset.  We will work with the data characterizing real estate valuation in New Taipei City, Taiwan that is available at [UCI ML repository](https://archive.ics.uci.edu/ml/datasets/Real+estate+valuation+data+set) as well as at this course website on canvas. The overall goal will be to use data modeling approaches to understand which attributes available in the dataset influence real estate valuation the most.  The outcome attribute (Y -- house price of unit area) is inherently continuous, therefore representing a regression problem.*
+
+*For more details please see dataset description available at UCI ML or corresponding [HTML file](https://canvas.harvard.edu/courses/72686/files/10071534/download) on canvas website for this course.  For simplicity, clarity and to decrease your dependency on the network reliability and UCI ML or canvas website availability during the time that you will be working on this project you are advised to download data made available on the canvas website to your local folder and work with the local copy. The dataset at UCI ML repository as well as its copy on our course canvas website is provided as an Excel file [Real estate valuation data set.xlsx](https://canvas.harvard.edu/courses/72686/files/10071533/download) -- you can either use `read_excel` method from R package `readxl` to read this Excel file directly or convert it to comma or tab-delimited format in Excel so that you can use `read.table` on the resulting file with suitable parameters (and, of course, remember to double check that in the end what you have read into your R environment is what the original Excel file contains).*
+
+*Finally, as you will notice, the instructions here are much terser than in the previous problem sets. We expect that you use what you've learned in the class to complete the analysis and draw appropriate conclusions based on the data.  The approaches that you are expected to apply here have been exercised in the preceeding weeks -- please feel free to consult your submissions and/or official solutions as to how they have been applied to different datasets.  As always, if something appears to be unclear, please ask questions -- note that we may decide to change your questions to private mode as we see fit, if in our opinion they reveal too many specific details of the problem solution.*
+
+```{r setup, include=FALSE}
+library(ISLR)
+library(leaps)
+library(ggplot2)
+library(glmnet)
+library(GGally)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Sub-problem 1: load and summarize the data (20 points)
+
+*Download and read in the data, produce numerical and graphical summaries of the dataset attributes, decide whether they can be used for modeling in untransformed form or any transformations are justified, comment on correlation structure and whether some of the predictors suggest relationship with the outcome.*
+``` {r problem1pt1}
+realEstate <- read.table("./Real-estate-valuation-data-set.csv", header=TRUE, sep=",")
+# get rid of No. column - we don't need it
+realEstate <- realEstate[,-1]
+# rename columns for cleaner look
+colnames(realEstate) <- c("transactiondate", "houseage", "disttoMTR", "numconvstores", "latitude", "longitude", "houseprice")
+summary(realEstate)
+
+realEstateLog <- log(realEstate + 1)
+old.par <- par(mfrow=c(2,2),ps=16)
+for (i in 1:ncol(realEstate)) {
+  hist(realEstate[,i], col="pink", main=paste(colnames(realEstateLog[i])))
+  hist(realEstateLog[,i], col="deepskyblue", main=paste("log of",colnames(realEstateLog[i])))
+}
+```
+
+**To begin, I removed the first "no" column from the data set, as it is redundant and I did not want a non-statistically valuable variable contributing to the analysis. Next, a quick numerical summary gives interesting context for the real estate data set. The transactions are all within 2013-2014, differences in latitude + longitude are much smaller than other variables in an absolute sense, which makes sense in context of variable meanings.**
+
+**Next I plotted histograms of each variable to get a better understanding of the variables' distributions and especially to decide whether variables should be log-transformed for better analysis. Log transformations do not aid much in normalizing predictor variable distributions with the exception of distance to nearest MRT station. This will be the only log-transformed variable, the rest will remain as is.**
+
+``` {r subproblem1pt2}
+# save a copy in case we need non-log transformed dataset
+realEstateCopy <- realEstate
+# log transform one var
+realEstate[,"disttoMTR"] <- log(realEstate[,"disttoMTR"])
+
+ggpairs(realEstate,
+        lower = list(continuous = wrap("points", alpha = 0.3,    size=0.1), 
+              combo = wrap("dot", alpha = 0.4,            size=0.2) ),
+        title = "Real Estate Valuation Pairs Plot")
+```
+
+**Next, I looked at pairwise plots to see if there are potential relationships between variables. The strongest correlation of all variables is actually one with the outcome variable: house price and distance to MTR station. This correlation is significantly higher than other correlations with the outcome variable, suggesting that this may be an important predictor of house price. There are also decently high correlations between number of convenient stores and distance to MTR station, which could be getting at some sort of metropolitan factor. Further analysis will obviously be needed before drawing conclusions.**
+
+# Sub-problem 2: multiple linear regression model (25 points)
+
+*Using function `lm` fit model of outcome as linear function of all predictors in the dataset. Present and discuss diagnostic plots. Report 99% confidence intervals for model parameters that are statistically significantly associated with the outcome and discuss directions of those associations. Obtain mean prediction (and corresponding 90% confidence interval) for a new observation with each attribute set to average of the observations in the dataset. Describe evidence for potential collinearity among predictors in the model.*
+
+``` {r subproblem2pt1}
+realEstate.lm <- lm(houseprice~., realEstate)
+
+old.par <- par(mfrow=c(2,2),ps=16)
+summary(realEstate.lm)
+plot(realEstate.lm)
+
+par(old.par)
+boxplot(realEstate$houseprice, main="Boxplot of house prices")
+
+# remove single outlier from data set
+old.par <- par(mfrow=c(2,2),ps=16)
+realEstate <- realEstate[-271,]
+```
+
+**A linear regression of all predictor variables for outcome house price shows relatively promising plots. There is no sign of a non-linear pattern in the residuals, the Q-Q plot hugs the diagonal well, and there are few leveraged points. However, there is one apparent outlier, observation 271. This highly leveraged outlier may be negatively impacting our model. I graphed a boxplot of house prices to confirm that this is a significant outlier before ultimately removing the data point.**
+
+``` {r subproblem2pt2}
+# redo regression model without outlier
+realEstate.lm <- lm(houseprice~., realEstate)
+summary(realEstate.lm)
+plot(realEstate.lm)
+```
+
+**The removal of this single point improved adjusted r-squared value by .04 alone. The numerical model summary suggests the significance of several variables, the most significant being disttoMTR (as expected), followed by latitude, house age, and then transaction date.**
+
+``` {r subproblem2pt3}
+confint(realEstate.lm, level=0.99)
+```
+
+**The significant variables from the coefficients above include transaction date, house age, distance to MTR station and latitude. The model suggests that there is a negative relationship between house age and price, which I would expect from context. There is also an apparent negative relationship between distance to MTR station and house price. I too expected that as the distance to public transportation increased, the price of the house would decrease. There is a positive relationship between transaction date and house price, suggesting that sales prices likely have risen across the measured time-period. Finally, a positive relationship between latitude and house price suggest that houses further north may be more valuable.**
+
+``` {r subproblem2pt4}
+
+# workaround because colmeans doesn't work well for putting into data frame
+means <- data.frame()
+for (i in 1:7) {
+  means[1,i] <- mean(realEstate[,i])
+}
+
+# name columns correctly and get rid of outcome var
+colnames(means) <- colnames(realEstate)
+means <- means[-7]
+
+paste("prediction intervals:")
+predict(realEstate.lm,newdata=means,interval='prediction', level=0.90)
+paste("confidence intervals:")
+predict(realEstate.lm,newdata=means,interval='confidence', level=0.90)
+```
+**A prediction (and confidence interval) for the model using all variables and inputting each variable's average from the observations yields a prediction falling between about 25 and 50, quite a large range. This signifies that a linear model of all predictor variables may not be the most accurate model attainable. From the correlations above, I suspect collinearity between number of convenient stores, distance to MTR station and both latitude and longitude. I suspect that these variables have an underlying geographic correlation, and that not all may be necessary in fitting an accurate model.**
+
+# Sub-problem 3: choose optimal models by exhaustive, forward and backward selection (20 points)
+
+*Use `regsubsets` from library `leaps` to choose optimal set of variables for modeling real estate valuation and describe differences and similarities between attributes deemed most important by these approaches.*
+
+``` {r subproblem3pt1}
+summaryMetrics <- NULL
+whichAll <- list()
+
+for ( myMthd in c("exhaustive", "backward", "forward") ) {
+  # 6 continuous variables
+  rsRes <- regsubsets(houseprice~.,realEstate,method=myMthd,nvmax=6)
+  summRes <- summary(rsRes)
+  whichAll[[myMthd]] <- summRes$which
+  for ( metricName in c("rsq","rss","adjr2","cp","bic") ) {
+    summaryMetrics <- rbind(summaryMetrics,
+      data.frame(method=myMthd,metric=metricName,
+                nvars=1:length(summRes[[metricName]]),
+                value=summRes[[metricName]]))
+  }
+}
+
+ggplot(summaryMetrics,aes(x=nvars,y=value,shape=method,colour=method)) + geom_path() + geom_point() + facet_wrap(~metric,scales="free") +   theme(legend.position="top")+theme_bw()
+
+old.par <- par(mfrow=c(1,2),ps=16,mar=c(5,7,2,1))
+for ( myMthd in names(whichAll) ) {
+  image(1:nrow(whichAll[[myMthd]]),
+        1:ncol(whichAll[[myMthd]]),
+        whichAll[[myMthd]],xlab="N(vars)",ylab="",
+        xaxt="n",yaxt="n",breaks=c(-0.5,0.5,1.5),
+        col=c("white","gray"),main=myMthd)
+  axis(1,1:nrow(whichAll[[myMthd]]),rownames(whichAll[[myMthd]]))
+  axis(2,1:ncol(whichAll[[myMthd]]),colnames(whichAll[[myMthd]]),las=2)
+}
+```
+
+**The above shows optimal variable selection models via exhaustive, forward, and backward methods. What we see is the methods select the same variables in modeling, likely due to the relatively small number of variables in the data set. As expected, the distance to MTR station is deemed most important by the models, followed by latitude, houseage, and transaction date. I find it interesting that latitude is deemed most important while longitude is deemed least. This suggests that there is perhaps some geographical significance in the house location that is more important north-south than east-west.**
+
+# Sub-problem 4: optimal model by resampling (20 points)
+
+*Use cross-validation or any other resampling strategy of your choice to estimate test error for models with different numbers of variables.  Compare and comment on the number of variables deemed optimal by resampling versus those selected by `regsubsets` in the previous task.*
+
+``` {r subproblem4 pt1}
+# Define a predict function for regsubsets class
+predict.regsubsets <- function (object, newdata, id, ...){
+  form=as.formula(object$call [[2]])
+  mat=model.matrix(form,newdata)
+  coefi=coef(object,id=id)
+  xvars=names (coefi)
+  mat[,xvars] %*% coefi
+}
+
+dfTmp <- NULL
+whichSum <- array(0,dim=c(6,7,3),
+  dimnames=list(NULL,colnames(model.matrix(houseprice~.,realEstate)),
+      c("exhaustive", "backward", "forward")))
+# Split data into training and test 30 times:
+nTries <- 30
+for ( iTry in 1:nTries ) {
+  bTrain <- sample(rep(c(TRUE,FALSE),length.out=nrow(realEstate)))
+  # Try each method available in regsubsets
+  # to select the best model of each size:
+  for ( jSelect in c("exhaustive", "backward", "forward") ) {
+    rsTrain <- regsubsets(houseprice~.,realEstate[bTrain,],nvmax=6,method=jSelect)
+    # Add up variable selections:
+    whichSum[,,jSelect] <- whichSum[,,jSelect] + summary(rsTrain)$which
+    summary(rsTrain)$which
+    # Calculate test error for each set of variables
+    # using predict.regsubsets implemented above:
+    for ( kVarSet in 1:6 ) {
+      # make predictions:
+      testPred <- predict(rsTrain,realEstate[!bTrain,],id=kVarSet)
+      # calculate MSE:
+      mseTest <- mean((testPred-realEstate[!bTrain,"houseprice"])^2)
+      # add to data.frame for future plotting:
+      dfTmp <- rbind(dfTmp,data.frame(sim=iTry,sel=jSelect,vars=kVarSet,
+      mse=c(mseTest,summary(rsTrain)$rss[kVarSet]/sum(bTrain)),trainTest=c("test","train")))
+    }
+  }
+}
+
+# plot MSEs by training/test, number of 
+# variables and selection method:
+ggplot(dfTmp,aes(x=factor(vars),y=mse,colour=sel)) + geom_boxplot()+facet_wrap(~trainTest)+theme_bw()
+
+for ( myMthd in dimnames(whichSum)[[3]] ) {
+  tmpWhich <- whichSum[,,myMthd] / nTries
+  image(1:nrow(tmpWhich),1:ncol(tmpWhich),tmpWhich,
+        xlab="N(vars)",ylab="",xaxt="n",yaxt="n",main=myMthd,
+        breaks=c(-0.1,0.1,0.25,0.5,0.75,0.9,1.1),
+        col=c("white","gray90","gray75","gray50","gray25","gray10"))
+  axis(1,1:nrow(tmpWhich),rownames(tmpWhich))
+  axis(2,1:ncol(tmpWhich),colnames(tmpWhich),las=2)
+}
+
+mean(dfTmp[,"mse"])
+```
+
+**Using a bootstrap resampling method with 30 trials, we find rather similar results as prior with regsubsets. In both cases, it appears the optimal number of variables is either 5 or 6 with only a small difference between their errors. In both cases and as expect, the increase in first few variables tremendously improves the accuracy of the model. The variable inclusion rates similarly match the results from regsubsets. One difference is that the bootstrapping method appears place to slightly more value on variable number of convenience stores than via regsubsets.**
+
+# Sub-problem 5: variable selection by lasso (15 points)
+
+*Use regularized approach (i.e. lasso) to model property valuation.  Compare resulting models (in terms of number of variables and their effects) to those selected in the previous two tasks (by `regsubsets` and resampling), comment on differences and similarities among them.*
+
+
+``` {r subproblem5pt1}
+x <- model.matrix(houseprice~.,realEstate)[,-1]
+y <- realEstate[,"houseprice"]
+lassoRes <- glmnet(x,y, alpha=1)
+plot(lassoRes, label=TRUE)
+
+cvLassoRes <- cv.glmnet(x,y,alpha=1)
+cvLassoRes$lambda.min
+plot(cvLassoRes)
+```
+
+**The lasso variable selection model is quite different than the two prior. In this case, the shrinking variable keeps almost all variables out of the model across different values of shrinkage. Here, the contribution of the latitude variable encapsulates all predictive power of the model for most of the range in shrinkage. The next variable to contribute to the model is actually longitude, which was deemed unimportant by the prior models.**
+
+# Extra points problem: using higher order terms (10 points)
+
+*Evaluate the impact of adding non-linear terms to the model.  Describe which terms, if any, warrant addition to the model and what is the evidence supporting their inclusion.  Evaluate, present and discuss the effect of their incorporation on model coefficients and test error estimated by resampling.*
+
+``` {r extrapointspt1}
+
+# add interaction terms for every combo of 2 predictor variables
+x2Tmp <- NULL
+  tmpCnms <- NULL
+  # for each original variable:
+  for ( iTmp in 1:6) {
+    # multiply it by itself and all other terms,
+    # excluding already generated pairwise combinations: 
+    for ( jTmp in iTmp:6) {
+      x2Tmp <- cbind(x2Tmp,realEstate[,iTmp]*realEstate[,jTmp])
+      # maintain vector of column names for quadratic
+      # terms along the way:
+      tmpCnms <- c(tmpCnms,paste0(colnames(realEstate[iTmp])," x ",colnames(realEstate[jTmp])))
+    }
+  }
+  
+colnames(x2Tmp) <- tmpCnms
+realEstateQuad <- data.frame(realEstate, x2Tmp)
+```
+
+``` {r extrapointspt2}
+predict.regsubsets <- function (object, newdata, id, ...){
+  form=as.formula(object$call [[2]])
+  mat=model.matrix(form,newdata)
+  coefi=coef(object,id=id)
+  xvars=names (coefi)
+  mat[,xvars] %*% coefi
+}
+
+dfTmp <- NULL
+whichSum <- array(0,dim=c(27,28,1),
+  dimnames=list(NULL,colnames(model.matrix(houseprice~.,realEstateQuad)),
+      c("forward")))
+# Split data into training and test 30 times:
+nTries <- 30
+for ( iTry in 1:nTries ) {
+  bTrain <- sample(rep(c(TRUE,FALSE),length.out=nrow(realEstateQuad)))
+  # Try each method available in regsubsets
+  # to select the best model of each size:
+  for ( jSelect in c("forward") ) {
+    rsTrain <- regsubsets(houseprice~.,realEstateQuad[bTrain,],nvmax=27,method=jSelect)
+    # Add up variable selections:
+    whichSum[,,jSelect] <- whichSum[,,jSelect] + summary(rsTrain)$which
+    summary(rsTrain)$which
+    # Calculate test error for each set of variables
+    # using predict.regsubsets implemented above:
+    for (kVarSet in 1:27) {
+      # make predictions:
+      testPred <- predict(rsTrain,realEstateQuad[!bTrain,],id=kVarSet)
+      # calculate MSE:
+      mseTest <- mean((testPred-realEstateQuad[!bTrain,"houseprice"])^2)
+      # add to data.frame for future plotting:
+      dfTmp <- rbind(dfTmp,data.frame(sim=iTry,sel=jSelect,vars=kVarSet,
+      mse=c(mseTest,summary(rsTrain)$rss[kVarSet]/sum(bTrain)),trainTest=c("test","train")))
+    }
+  }
+}
+
+# plot MSEs by training/test, number of 
+# variables and selection method:
+ggplot(dfTmp,aes(x=factor(vars),y=mse,colour=sel)) + geom_boxplot()+facet_wrap(~trainTest)+theme_bw()
+
+old.par <- par(mfrow=c(1,1),ps=4)
+for ( myMthd in dimnames(whichSum)[[3]] ) {
+  tmpWhich <- whichSum[,,myMthd] / nTries
+  image(1:nrow(tmpWhich),1:ncol(tmpWhich),tmpWhich,
+        xlab="N(vars)",ylab="",xaxt="n",yaxt="n",main=myMthd,
+        breaks=c(-0.1,0.1,0.25,0.5,0.75,0.9,1.1),
+        col=c("white","gray90","gray75","gray50","gray25","gray10"))
+  axis(1,1:nrow(tmpWhich),rownames(tmpWhich))
+  axis(2,1:ncol(tmpWhich),colnames(tmpWhich),las=2)
+}
+```
+
+**To test higher-order variables, I created interaction terms for all combinations of predictor variables in the data. A graph of the test and training errors shows that much overfitting occurs when including all interaction terms. The minimum test error results from a model of 19 variables, with considerable reduction in error leading up to it. This error value is considerably less than in the linear model, suggesting that interaction terms is valuable in better predicting house prices. The interaction terms that are deemed most important are combinations of those same most prevalent variables from earlier and those with highest correlations with each other (disttoMTR, latitude, numconvstores). These further support my earlier conclusion of underlying geographic factors affecting housing prices. Houses with closer proximity to MTR stations and higher latitude (likely more metropolitan) tend to be more expensive.**
+

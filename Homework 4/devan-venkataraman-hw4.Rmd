@@ -1,0 +1,160 @@
+---
+title: "CSCI E-63C: Problem Set 4"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+```
+
+# Problem: estimating multiple regression error rate by resampling (60 points)
+
+This week problem set closely follows what is explained in the preface above, except that instead of using simulated dataset, you are expected to use the fund raising dataset that you have already worked with during the previous weeks, that now also has predicted values (column `predcontr`) for the outcome as described below. It is available on the course website in canvas (file `fund-raising-with-predictions.csv` on the page for this lecture).
+
+The first column -- `contrib` -- is the outcome we are trying to predict.  The last column -- `predcontr` -- represents *predictions* for that outcome variable made by one of the simpler models submitted by a participant in the data mining competition that used this fund raising dataset back in the 90's.  We will use the attribute `predcontr` only as a *reference* (we will compare it our own models' predictions).  It has to be excluded from model building (it would not be prudent to try
+predicting the outcome using predictions already made for the same outcome by someone else - not in these settings at least!). The column before last -- `gender` -- is a categorical attribute that we will also omit for the purposes of this week problem set in the interests of simplicity.  In the end you should be working with a dataset with twelve continuous attributes -- one outcome, `contrib`, and eleven predictors (`gapmos`,	`promocontr`,	`mincontrib`,	`ncontrib`,	`maxcontrib`,	`lastcontr`,	`avecontr`,	`mailord`,	`mindate`,	`maxdate`	and `age`).  Because of distributional properties of multiple attributes in this dataset, you are better off working with log-transformed *both* predictors and the outcome.  Because several values in this dataset are zeroes and to avoid dealing with NaNs, just add "1" before the log-transform to all values in this dataset (e.g. `myDat <- log(myDat+1)`).
+
+## Sub-problem 1: prepare the dataset (10 points)
+
+Read in the dataset, drop categorical attribute (`gender`) and predictions by the competition participants (`predcontr`), log-transform predictors and outcome as described above, rearrange columns in the dataset in the decreasing order of absolute values of their correlation with the outcome (`contrib`).  So that in the resulting data table the outcome (`contrib`) is the first column, the next one is the predictor that is the most (positively or negatively) correlated with it, and so on.  You may find it convenient to use R function `order` for that.
+
+``` {r subproblem1pt1}
+fundraising <- read.table("./fund-raising-with-predictions.csv", header=TRUE, sep=",")
+head(fundraising)
+
+# Remove stated variables
+FundData <- fundraising[,c(-13, -14)]
+head(FundData)
+
+# Log transform data
+FundData <- log(FundData + 1)
+# Save a copy to reference predictions later
+FundDataCopy <- FundData
+
+CorDat <- as.data.frame(cor(FundData))
+CorDat <- CorDat[1,]
+CorDat <- sort(abs(CorDat), decreasing=TRUE)
+
+FundData <- FundData[,colnames(CorDat)]
+# FundData
+```
+
+## Sub-problem 2: add quadratic terms to the dataset (10 points)
+
+Use the code presented in the preface as a template to develop your own procedure for adding to the fund raising dataset containing outcome (`contrib`) and all continuous predictors (`gapmos` through `age`) all pairwise products of continuous predictors (e.g. `gapmos` x `gapmos`, `gapmos` x `promocontr`, ..., `age` x `age`).  The data used here has to be the one from fund raising dataset, _not_ simulated from normal distribution as shown in the preface.  In the end your dataset should have 78 columns: `contrib`, 11 predictors and 11*12/2=66 of their pairwise combinations.
+
+``` {r subproblem2pt1}
+x2Tmp <- NULL
+  tmpCnms <- NULL
+  # for each original variable:
+  for ( iTmp in 2:ncol(FundData) ) {
+    # multiply it by itself and all other terms,
+    # excluding already generated pairwise combinations: 
+    for ( jTmp in iTmp:ncol(FundData) ) {
+      x2Tmp <- cbind(x2Tmp,FundData[,iTmp]*FundData[,jTmp])
+      # maintain vector of column names for quadratic
+      # terms along the way:
+      tmpCnms <- c(tmpCnms,paste0("X",iTmp,"X",jTmp))
+    }
+  }
+
+colnames(x2Tmp) <- tmpCnms
+FundData <- data.frame(FundData, x2Tmp)
+```
+
+## Sub-problem 3: fit multiple regression models on the entire dataset (10 points)
+
+As illustrated in the preface above, starting from the first, most correlated with `contrib`, predictor, fit linear models with one, two, ..., all 77 linear and quadratic terms on the entire dataset and calculate resulting (training) error for each of the models. Plot error as a function of the number of predictors in the model (similar to the plot in the preface that shows just the training error on the entire dataset).  Also, indicate in the same plot the error from predicting all outcomes to be just the average outcome on the entire dataset as shown in the preface.  Because the underlying data is different, the change of the regression error with the number of attributes included in the model in the plot that you obtain here for fund raising dataset will be different from that shown in the preface.  Please comment on this difference.
+
+``` {r subproblem3pt1}
+
+df2plot <- NULL
+for ( iTmp in 2:ncol(FundData) ) {
+  lmTmp <- lm(FundData$contrib~.,FundData[,1:iTmp])
+  errTmp <- sqrt(mean((FundData[,"contrib"]-predict(lmTmp))^2))
+  df2plot <- rbind(df2plot,data.frame(nvars=iTmp-1,err=errTmp))
+}
+plot(df2plot,xlab="Number of variables",ylab="Regression error",main=paste(nrow(FundData),"observations"),ylim=c(min(df2plot[,"err"]),sqrt(mean((FundData[,"contrib"]-mean(FundData[,"contrib"]))^2))))
+abline(h=sqrt(mean((FundData[,"contrib"]-mean(FundData[,"contrib"]))^2)),lty=2)
+```
+
+**The disparity in the plot of regression error vs number of variables in the plot above and the preface is a signal that an increasingly complex model may not be helpful in predicting contribution. When compared to the simulated data set, we find that the increase in variables in a model from 1 to 5 has a significantly smaller improvement here than in the simulated data.**
+
+## Sub-problem 4: develop function performing bootstrap on fund raising dataset (10 points)
+
+Modify function `bootTrainTestErrOneAllVars` defined in the preface to perform similar kind of analysis on the fund raising dataset.  Alternatively, you can determine what modifications are necessary to the fund raising dataset, so that it can be used as input to `bootTrainTestErrOneAllVars`.
+
+## Sub-problem 5: use bootstrap to estimate training and test error on fund raising dataset (20 points)
+
+Use function developed above to estimate training and test error in modeling `contrib` for the fund raising dataset.  Plot and discuss the results.  Compare your model errors obtained over the range of model complexity (in other words over the range of
+numbers of variables included) to the error of the model built by the competition participants (we know their predictions, so their residuals are differences between `contrib` and `predcontr` in the original full dataset; since we used the log-transform before proceeding with our own modeling, this needs accounted for -- make sure that you either calculate
+the error of the competition participants on the same log scale or recalculate your own errors back to the original scale before the comparison!)
+
+``` {r subproblem4pt1}
+  # 50 bootstrap iterations
+  errTrain <- matrix(NA,nrow=50,ncol=ncol(FundData)-1)
+  errTest <- matrix(NA,nrow=50,ncol=ncol(FundData)-1)
+  # vector to store the training error of each model
+  # fitted on all observations:
+  allTrainErr <- numeric()
+  # this loop tries different models: with 1, 2, 3, ... predictor variables
+  # (note that first predictor is the second column in
+  # the input data - the first column is the outcome "Y"):
+  for ( iTmp in 2:ncol(FundData) ) {
+    # fit model that inludes iTmp-1 first variables (in the order they occur
+    # in the columns of inpDat):
+    lmTmp <- lm(contrib~.,FundData[,1:iTmp])
+    
+    # (use summary(lmTmp)$sigma if you want correction for the degrees of freedom)
+    # training error of the current model (iTmp-1 predictors) fitted on all data: 
+    allTrainErr[iTmp-1] <- sqrt(mean((FundData[,"contrib"]-predict(lmTmp))^2))
+    
+    # Now let's cross-validate the current model using bootstrap.
+    # Perform nBoot intependent bootstrapping resamplings to accumulate the statistics:
+    for ( iBoot in 1:50 ) {
+      # in each resampling iteration, generate a new bootstrapped sample
+      # (replace=TRUE is critical for bootstrap to work correctly!):
+      tmpBootIdx <- sample(nrow(FundData),nrow(FundData),replace=TRUE)
+      # now tmpBootIdx are the indexes of observations in the original data that were 
+      # randomly selected (in this particular bootstrap iteration) to be placed into the training set.
+      # Now fit the current model on the bootstrap sample:
+      lmTmpBoot <- lm(contrib~.,FundData[tmpBootIdx,1:iTmp])
+      # calculate the MSE for the current bootstrap iteration
+      # (or use summary(lmTmpBoot)$sigma for degrees of freedom correction):
+      errTrain[iBoot,iTmp-1] <- sqrt(mean((FundData[tmpBootIdx,"contrib"]-predict(lmTmpBoot))^2))
+      # test error is calculated on the observations
+      # =not= in the bootstrap sample - thus "-tmpBootIdx"
+      errTest[iBoot,iTmp-1] <- sqrt(mean((FundData[-tmpBootIdx,"contrib"]-
+                                            predict(lmTmpBoot,newdata=FundData[-tmpBootIdx,1:iTmp]))^2))
+    }
+  }
+  # return results (bootstrap training errors, bootstrap test errors, and training errors
+  # claculated on the full dataset) as different slots in the list:
+  MyInpRes <- list(bootTrain=errTrain,bootTest=errTest,allTrain=allTrainErr)
+  
+plotBootRegrErrRes <- function(inpRes,inpPchClr=c(1,2,4),...) {
+  matplot(1:length(inpRes$allTrain),cbind(inpRes$allTrain, 
+                                          colMeans(inpRes$bootTrain),
+                                          colMeans(inpRes$bootTest)
+                                          ),
+          pch=inpPchClr,col=inpPchClr,lty=1,type="b",xlab="Number of predictors",ylab="Regression error",...)
+  legend("topright",c("train all","train boot","test boot"),
+         col=inpPchClr,text.col=inpPchClr,pch=inpPchClr,lty=1)
+}
+
+plotBootRegrErrRes(MyInpRes,main="3470 observations", ylim=c(min(colMeans(MyInpRes$bootTrain)),sqrt(mean((mean(FundData[,"contrib"])-FundData[,"contrib"])^2))))
+abline(h=sqrt(mean((mean(FundData[,"contrib"])-FundData[,"contrib"])^2)),lty=2)
+
+FundDataWithPred <- fundraising
+FundDataWithPred <- FundDataWithPred[,-13]
+FundDataWithPred <- log(FundDataWithPred + 1)
+prederror <- sqrt(mean((FundDataWithPred[,"contrib"])-FundDataWithPred[,"predcontr"])^2)
+prederror
+```
+
+**The error plot with both total training and bootstrapping strategies reveals that test error is minimized with ~XX variables, and then rises as more variables are added. Meanwhile, training error continues to go down as more variables are added the model. The plot shows how bootstrapping may help find a balance in the bias-variance tradeoff, and how minimizing training error is certainly not a best strategy when developing a model.**
+
+**The prediction error of the competitor's model (0.108) is significantly lower than even the best prediction model above (~0.34), suggesting that we may have more to learn in modeling than these simple linear regressions!**

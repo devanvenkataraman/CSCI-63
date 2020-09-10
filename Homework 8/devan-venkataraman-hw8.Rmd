@@ -1,0 +1,209 @@
+---
+title: "CSCI E-63C Problem Set 8"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(cluster)
+library(clue)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 1: within/between cluster variation and CH-index (15 points)
+
+Present plots of CH-index as well as (total) within and between cluster variance provided by K-means clustering on scaled WHS data for 2 through 20 clusters.  Choose large enough value of `nstart` for better stability of the results across multiple trials and evaluate stability of those results across several runs.  Discuss the results and weigh on whether the shapes of the curves suggest specific number of clusters in the data.
+
+``` {r problem1pt1}
+GHOData <- read.table("whs2018_AnnexB-subset-wo-NAs.txt", sep="\t", header=TRUE)
+
+chori=numeric(20)
+for ( k in 2:20 ) {
+  kf=kmeans(scale(GHOData),k,nstart=30)
+  chori[k] = (kf$betweenss/(k-1)) / (kf$tot.withinss/(nrow(GHOData)-k))
+}
+plot(2:20,chori[-1],type="b", lwd=2,pch=19,xlab="K", ylab="CH index",xlim=c(1,20),ylim=range(chori[-1])*c(1/2,1))
+
+for ( i in 1:10 ) {
+  chrnd = numeric()
+  chsmpl = numeric()
+  for ( k in 2:20 ) {
+    krnd = kmeans(apply(scale(GHOData),2,function(x)runif(length(x),min(x),max(x))),k,nstart=30)
+    chrnd[k] = (krnd$betweenss/(k-1)) / (krnd$tot.withinss/(nrow(GHOData)-k))
+    ksmpl = kmeans(apply(scale(GHOData),2,sample),k,nstart=30)
+    chsmpl[k] = (ksmpl$betweenss/(k-1)) / (ksmpl$tot.withinss/(nrow(GHOData)-k))
+  }
+  points(2:20,chrnd[-1],type="l",col="red")
+  points(2:20,chsmpl[-1],type="l",col="blue")
+}
+```
+
+**The plot of CH indices across K values of 2 of 20 for the kmeans algorithm is above. This plot does not suggest a specific number of clusters in the WHSData, as there is no local maxima apparent. The red lines, generated from the same algorithm but on sample data from a uniform distribution do support the notion that clustering is a helpful unsupervised technique here, it's just there is no evidence of a certain number of clusters. The significant drop in CH index under K = 5 would suggest that a fewer number of clusters would be optimal.**
+
+# Problem 2: gap statistics (15 points)
+
+Using the code provided in the lecture slides for calculating gap statistics or one of its implementations available in R (e.g. `clusGap` from library `cluster`), compute and plot gap statistics for K-means clustering of the scaled WHS data for 2 through 20 clusters.  Discuss whether it indicates presence of clearly defined cluster structure in this data.
+
+``` {r problem2pt1}
+gapGHO <- clusGap(scale(GHOData), kmeans, 20, d.power=2)
+plot(gapGHO)
+```
+
+**The nature of the gap statistic tells us that we should select number of clusters k where the largest gap is found between within sum of squares of the actual data vs sample data from a uniform distribution. However, the plot above tells us that the optimal k is 20+ clusters. What's going on here is that the strength of the clustering method is not strong enough to generate a local maxima with < max(k) clusters. The value k = 10 seems to generate a gap substantially above the trend, so it may make for a proper number of clusters.**
+
+# Problem 3: stability of hierarchical clustering (15 points)
+
+For numbers of clusters K=2, 3 and 4 found in the scaled WHS dataset by (1) `hclust` with Ward method (as obtained by `cutree` at corresponding levels of `k`) and (2) by K-means, compare cluster memberships between these two methods at each K and describe their concordance.  This problem is similar to the one from week 8 problem set, but this time it is *required* to: 1) use two dimensional contingency tables implemented by `table` to compare membership between two assignments of observations into clusters, and 2) programmatically re-order rows and columns in the `table` result to correctly identify the correspondence between the clusters (please see examples in lecture slides).
+
+``` {r problem3pt1}
+
+GHODataScaled <- scale(GHOData)
+
+matrix.sort <- function(m) {
+    require(clue)
+p = solve_LSAP(m, maximum=T) # find the permutation...
+    m[, p] # and apply it!
+}
+
+for (i in 2:4) {
+  GHO.hclust <- hclust(dist(GHODataScaled), method="ward.D")
+  GHO.cutree <- cutree((GHO.hclust), i)
+  GHO.kmeans <- kmeans(GHODataScaled, i, nstart=100)
+  hclustvskmeans <- matrix.sort(table(GHO.cutree, GHO.kmeans$cluster))
+  print(hclustvskmeans)
+}
+```
+
+**There is significant variation between the two clustering methods when applied to the dataset. The two are most similar under the 2 cluster execution, with all but 8 observations falling into the same clusters. With 3 clusters, there is significant variation where hierarchal puts the majority of points into 1 cluster while kmeans splits between the three. The same trend continues with 4 clusters. It's hard to tell whether the less evenly distributed clustering method is more efficient or not because the clustering is not extremely apparent in the data to begin with.**
+
+## For *extra* 5 points: between/within variance in hierarchical clusters
+
+Using functions `between` and `within` provided in the lecture slides calculate between and (total) within cluster variances for top 2 through 20 clusters defined by Ward's hierarchical clustering when applied to the scaled WHS data.  Plot the results.  Compare their behavior to that of the same statistics when obtained for K-means clustering above.
+
+``` {r extrapoints}
+w <- numeric(20)
+x <- numeric(20)
+
+GHO.hclust$tot.withinss
+
+for ( k in 1:20 ) {
+  kf <- kmeans(GHODataScaled,k,nstart=100)
+  w[k] = kf$tot.withinss
+  x[k] = kf$betweenss
+}
+
+plot(1:20,w,type="b",lwd=2,pch=19,xlab="K", ylab=expression(SS[within]))
+plot(1:20,x,type="b",lwd=2,pch=19,xlab="K", ylab=expression(SS[between]))
+```
+
+**I wasn't able to figure out how to get within / between sum of squares for hierarchal clustering.**
+
+# Problem 4: Brute force randomization in hierarchical clustering (15 points)
+
+Compare distribution of the heights of the clusters defined by `hclust` with Ward's clustering of Euclidean distance between countries in the scaled WHS dataset and those obtained by applying the same approach to the distances calculated on randomly permuted WHS dataset as illustrated in the lecture slides.  Discuss whether results of such brute force randomization are supportive of presence of unusually close or distant sets of observations within WHS data.
+
+``` {r problem4}
+ 
+ori.heights <- GHO.hclust$height
+rnd.heights <- numeric()
+for ( i.sim in 1:100 ) {
+  data.rnd <- apply(GHODataScaled,2,sample)
+  hw.rnd <- hclust(dist(GHODataScaled),method="ward.D2")
+  rnd.heights <- c(rnd.heights,hw.rnd$height)
+}
+
+plot(ori.heights,rank(ori.heights)/length(ori.heights),
+col="red",xlab="height",ylab="F(height)",pch=19)
+points(rnd.heights,rank(rnd.heights)/length(rnd.heights),
+col="blue")
+```
+
+**The comparative plot of hierarchal clustering heights from the original data versus those from brute force randomization. There is very little difference between the two plots, suggesting that there is not overoptimism occurring with the brute force randomization.**
+
+# Doing Same Plots for Dataset 'Quakes'
+
+```{r quakespt1}
+chori=numeric(20)
+for ( k in 2:20 ) {
+  kf=kmeans(scale(quakes),k,nstart=30)
+  chori[k] = (kf$betweenss/(k-1)) / (kf$tot.withinss/(nrow(quakes)-k))
+}
+plot(2:20,chori[-1],type="b", lwd=2,pch=19,xlab="K", ylab="CH index",xlim=c(1,20),ylim=range(chori[-1])*c(1/2,1))
+
+for ( i in 1:10 ) {
+  chrnd = numeric()
+  chsmpl = numeric()
+  for ( k in 2:20 ) {
+    krnd = kmeans(apply(scale(quakes),2,function(x)runif(length(x),min(x),max(x))),k,nstart=30)
+    chrnd[k] = (krnd$betweenss/(k-1)) / (krnd$tot.withinss/(nrow(quakes)-k))
+    ksmpl = kmeans(apply(scale(quakes),2,sample),k,nstart=30)
+    chsmpl[k] = (ksmpl$betweenss/(k-1)) / (ksmpl$tot.withinss/(nrow(quakes)-k))
+  }
+  points(2:20,chrnd[-1],type="l",col="red")
+  points(2:20,chsmpl[-1],type="l",col="blue")
+}
+```
+
+**With the quakes data set we immediately see much more clear cluster patterns. Local maxima in CH Index ~5 suggest that around there is the optimal number of clusters.**
+
+``` {r quakespt2}
+gapQuakes <- clusGap(scale(quakes), kmeans, 20, d.power=2)
+plot(gapQuakes)
+```
+
+**The plot of cluster gap paints a bit of a different picture than the CH Index plot above. Here, there is no local maxima and there is so strong evidence suggesting a single value of K is the clear optimal choice in clustering.**
+
+``` {r quakespt3}
+
+matrix.sort <- function(m) {
+    require(clue)
+p = solve_LSAP(m, maximum=T) # find the permutation...
+    m[, p] # and apply it!
+}
+
+for (i in 2:4) {
+  quakes.hclust <- hclust(dist(quakes), method="ward.D")
+  quakes.cutree <- cutree((quakes.hclust), i)
+  quakes.kmeans <- kmeans(quakes, i, nstart=100)
+  hclustvskmeans <- matrix.sort(table(quakes.cutree, quakes.kmeans$cluster))
+  print(hclustvskmeans)
+}
+```
+
+**There is much more similarity between clustering strategies in this dataset than in the first one of this assigment. The fact that the two clustering algorithms provide much more consistent results is further evidence of strong clustering in the underlying dataset!**
+
+``` {r quakespt4}
+w <- numeric(20)
+x <- numeric(20)
+
+quakes.hclust$tot.withinss
+
+for ( k in 1:20 ) {
+  kf <- kmeans(quakes,k,nstart=100)
+  w[k] = kf$tot.withinss
+  x[k] = kf$betweenss
+}
+
+plot(1:20,w,type="b",lwd=2,pch=19,xlab="K", ylab=expression(SS[within]))
+plot(1:20,x,type="b",lwd=2,pch=19,xlab="K", ylab=expression(SS[between]))
+```
+
+``` {r quakespt5}
+ 
+ori.heights <- quakes.hclust$height
+rnd.heights <- numeric()
+for ( i.sim in 1:100 ) {
+  data.rnd <- apply(quakes,2,sample)
+  hw.rnd <- hclust(dist(quakes),method="ward.D2")
+  rnd.heights <- c(rnd.heights,hw.rnd$height)
+}
+
+plot(ori.heights,rank(ori.heights)/length(ori.heights),
+col="red",xlab="height",ylab="F(height)",pch=19)
+points(rnd.heights,rank(rnd.heights)/length(rnd.heights),
+col="blue")
+```
+
+**Once again, there is very little difference between the two plots, suggesting that there is not overoptimism occurring with the brute force randomization.**
